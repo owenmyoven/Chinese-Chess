@@ -2,9 +2,7 @@
 Xiang qi
 by Owen Yu
 
-tasks:
-make pieces turn when moved
-make moving animation 
+make ai
 
 
 '''
@@ -14,7 +12,7 @@ from pygame.locals import *
 import sys
 import os
 from random import randint, uniform, choice
-from math import sqrt
+from math import sqrt, ceil
 
 # Initializing Pygame
 pygame.init()
@@ -27,9 +25,9 @@ clock = pygame.time.Clock()
 WHITE = (255, 255, 255)
 BROWN = (238, 187, 85)
 BLACK = (0, 0, 0)
-RED = (224,2,2)
+RED = (224, 2, 2)
 # Screen
-WIDTH = 500
+WIDTH = 900
 HEIGHT = int(10/9 * WIDTH)
 DISPLAY = pygame.display.set_mode((WIDTH, HEIGHT))
 DISPLAY.fill(BROWN)
@@ -73,7 +71,7 @@ try:
 except:
     pass
 # Font
-font = pygame.font.SysFont("bahnschrift", 100)
+font = pygame.font.SysFont("bahnschrift", int(WIDTH/10))
 
 # Set title and Icon
 pygame.display.set_caption("Xiang Qi")
@@ -91,21 +89,30 @@ clicked = None
 only_one_selected = None  # To make sure there's only one piece selected
 cant_eat = False  # To make sure the piece doesn't move if it trys to eat it's own team
 turn = "red"
+PIECE_SPEED = 60
 
 def VX():
     l = []
     for i in range(50):
-        b = randint(-30,30)
+        b = randint(-30, 30)
         if abs(b) > 20:
             l.append(b)
 
     return choice(l)
+
+
 VY = VX
-RADIUS = 3 if WIDTH > 700 else 2
+RADIUS = int(WIDTH/300)
 COLOR = RED
 
 chess_board_x = -WIDTH/100
 chess_board_y = -WIDTH/100
+
+game_over = False
+winner = None
+
+
+
 # Functions
 
 
@@ -120,7 +127,7 @@ def King(self, column, row):
     elif self.color == "black":
         if row > 2 or column < 3 or column > 5:
             return False
-    possible_moves = [[0,1],[0,-1],[1,0],[-1,0]]
+    possible_moves = [[0, 1], [0, -1], [1, 0], [-1, 0]]
     bruh = False
     for i in possible_moves:
         if [column-self.column, row-self.row] == i:
@@ -138,7 +145,7 @@ def Guard(self, column, row):
     elif self.color == "black":
         if row > 2 or column < 3 or column > 5:
             return False
-    possible_moves = [[1,1],[-1,-1],[1,-1],[-1,1]]
+    possible_moves = [[1, 1], [-1, -1], [1, -1], [-1, 1]]
     bruh = False
     for i in possible_moves:
         if [column-self.column, row-self.row] == i:
@@ -147,7 +154,6 @@ def Guard(self, column, row):
     if bruh == False:
         return False
     return True
-    
 
 
 def Knight(self, column, row):
@@ -183,7 +189,7 @@ def Elephant(self, column, row):
     if self.color == "red" and row < 5 or self.color == "black" and row > 4:
         return False
 
-    possible_moves = [[2,2],[-2,-2],[2,-2],[-2,2]]
+    possible_moves = [[2, 2], [-2, -2], [2, -2], [-2, 2]]
     bruh = False
     for i in possible_moves:
         if [column-self.column, row-self.row] == i:
@@ -192,20 +198,22 @@ def Elephant(self, column, row):
     if bruh == False:
         return False
 
-    dic = {"right_up": False, "left_up": False, "right_down": False, "left_down": False}
+    dic = {"right_up": False, "left_up": False,
+           "right_down": False, "left_down": False}
     for i in all_pieces:
         if (i.column, i.row) == (self.column + 1, self.row - 1):
             dic["right_up"] = True
-        elif (i.column, i.row) == (self.column -1, self.row - 1):
+        elif (i.column, i.row) == (self.column - 1, self.row - 1):
             dic["left_up"] = True
         elif (i.column, i.row) == (self.column + 1, self.row + 1):
             dic["right_down"] = True
         elif (i.column, i.row) == (self.column - 1, self.row + 1):
             dic["left_down"] = True
     if i_copy == possible_moves[2] and dic["right_up"] or i_copy == possible_moves[1] and dic["left_up"] or i_copy == possible_moves[0] and dic["right_down"] or i_copy == possible_moves[3] and dic["left_down"]:
-        return False 
-    
-    return True       
+        return False
+
+    return True
+
 
 def Rook(self, column, row):
     if self.column != column and self.row != row:
@@ -303,19 +311,22 @@ def Pawn(self, column, row):
 # Classes
 
 class Explosion_Particle():
-    def __init__(self, x,y,v,radius,color):
-        self.pos = vec(x,y)
-        self.vel = vec(v,v)
-        self.vel.x = random_float(-1,1) * v
+    def __init__(self, x, y, v, radius, color):
+        self.pos = vec(x, y)
+        self.vel = vec(v, v)
+        self.vel.x = random_float(-1, 1) * v
         self.vn = sqrt(v**2 - self.vel.x**2)
-        self.vel.y = random_float(-1,1) * self.vn
+        self.vel.y = random_float(-1, 1) * self.vn
         self.radius = radius
         self.color = color
+
     def update(self):
         self.pos.x += self.vel.x
         self.pos.y += self.vel.y
-        
-        pygame.draw.circle(DISPLAY,self.color,(self.pos.x,self.pos.y),self.radius)
+
+        pygame.draw.circle(DISPLAY, self.color,
+                           (self.pos.x, self.pos.y), self.radius)
+
 
 class Piece():
     def __init__(self, column, row, color, type_of_piece):
@@ -326,6 +337,7 @@ class Piece():
         self.color = color
         self.vx = 0
         self.vy = 0
+        self.speed = PIECE_SPEED
         self.image_id = None  # To reference the image using c_p_size
         # Each piece has it's own moving and eating rules.
         self.type_of_piece = type_of_piece
@@ -334,12 +346,61 @@ class Piece():
         self.previous_row = self.row
         self.rect = pygame.Rect(self.x, self.y, C_P_SIZE, C_P_SIZE)
 
+        self.counter = None
+        self.init_column = self.column
+        self.init_row = self.row
+
     def update(self):
+        global game_over, winner, turn
+        self.x += self.vx
+        self.y += self.vy
 
         self.rect = pygame.Rect(self.x, self.y, C_P_SIZE, C_P_SIZE)
 
-        self.x = int(self.column * WIDTH/A_C_X_0 + WIDTH/A_C_X_1)
-        self.y = int(self.row * HEIGHT/A_C_Y_0 + HEIGHT/A_C_Y_1)
+        if self.column != self.init_column or self.row != self.init_row:
+            ##all_pieces.append(all_pieces.pop(all_pieces.index(self)))
+            self.delta_x = int(self.column * WIDTH /
+                               A_C_X_0 + WIDTH/A_C_X_1) - self.x
+            self.delta_y = int(self.row * HEIGHT/A_C_Y_0 +
+                               HEIGHT/A_C_Y_1) - self.y
+            self.idk = sqrt(
+                self.speed**2 / (self.delta_x**2 + self.delta_y**2))
+            self.vx = self.delta_x * self.idk
+            self.vy = self.delta_y * self.idk
+            self.counter = sqrt(self.delta_x**2 + self.delta_y**2)/self.speed
+            # print(self.vx,self.vy,self.counter)
+
+        if self.counter != None:
+            self.counter -= 1
+            # print(self.counter)
+            if self.counter < 0:
+                self.vx = 0
+                self.vy = 0
+                self.counter = None
+
+                for i in all_pieces:
+                    if (i.column, i.row) == (self.column, self.row ) and i != self:
+                        COLOR = i.color
+                        if i.type_of_piece == King:
+                            game_over = True
+                            winner = self.color
+                        all_pieces.remove(i)
+                        try:
+                            SOUND_EATEN.play()
+                            # SOUND_EATEN_2.play()
+                            for i in range(100):
+                                all_particles.append(Explosion_Particle(mouse_pos[0], mouse_pos[1], VX(
+                                ), RADIUS, choice([RED if COLOR == "red" else BLACK, WHITE])))
+                        except:
+                            pass
+                        break
+
+                self.x = int(self.column * WIDTH/A_C_X_0 + WIDTH/A_C_X_1)
+                self.y = int(self.row * HEIGHT/A_C_Y_0 + HEIGHT/A_C_Y_1)
+                turn = "red" if turn == "black" else "black"
+
+        self.init_column = self.column
+        self.init_row = self.row
 
         self.previous_x = int(self.previous_column *
                               WIDTH/A_C_X_0 + WIDTH/A_C_X_1)
@@ -409,7 +470,7 @@ for i in range(5):
 all_pieces.append(Piece(4, 9, "red", King))
 all_pieces.append(Piece(3, 9, "red", Guard))
 all_pieces.append(Piece(5, 9, "red", Guard))
-all_pieces.append(Piece(2, 9, "red", Elephant))  
+all_pieces.append(Piece(2, 9, "red", Elephant))
 all_pieces.append(Piece(6, 9, "red", Elephant))
 all_pieces.append(Piece(1, 9, "red", Knight))
 all_pieces.append(Piece(7, 9, "red", Knight))
@@ -466,18 +527,6 @@ while True:
                         if (clicked.column, clicked.row) != (new_clicked_column, new_clicked_row) and clicked.type_of_piece(clicked, new_clicked_column, new_clicked_row):
                             cant_eat = False
 
-                            for i in all_pieces:
-                                if (i.column, i.row) == (new_clicked_column, new_clicked_row) and i != clicked:
-                                    COLOR = i.color
-                                    all_pieces.remove(i)
-                                    try:
-                                        SOUND_EATEN.play()
-                                        ##SOUND_EATEN_2.play()
-                                        for i in range(100):
-                                            all_particles.append(Explosion_Particle(mouse_pos[0],mouse_pos[1],VX(),RADIUS,choice([RED if COLOR == "red" else BLACK,WHITE])))
-                                    except:
-                                        pass
-                                    break
                             try:
                                 SOUND_SELECTED_AND_PROCEEDED.play()
                             except:
@@ -490,7 +539,7 @@ while True:
 
                             clicked.state = "selected_and_proceeded"
 
-                            turn = "red" if turn == "black" else "black"
+                            ##turn = "red" if turn == "black" else "black"
 
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
@@ -510,8 +559,23 @@ while True:
     for entity in all_pieces:
 
         entity.update()
-    
-    
+
+    if game_over == True:
+        # pygame.draw.rect(DISPLAY,WHITE,(WIDTH/5,HEIGHT/2.4,600,150))
+        win_text = "P1 WINS!!!" if winner == "red" else "P2 WINS!!!"
+        stroke_win_text = int(WIDTH/300)
+        DISPLAY.blit(font.render(win_text, True, WHITE),
+                     (WIDTH/3.8 - stroke_win_text, HEIGHT/2.3-stroke_win_text))
+        DISPLAY.blit(font.render(win_text, True, WHITE),
+                     (WIDTH/3.8 + stroke_win_text, HEIGHT/2.3+stroke_win_text))
+        DISPLAY.blit(font.render(win_text, True, WHITE),
+                     (WIDTH/3.8 + stroke_win_text, HEIGHT/2.3-stroke_win_text))
+        DISPLAY.blit(font.render(win_text, True, WHITE),
+                     (WIDTH/3.8 - stroke_win_text, HEIGHT/2.3+stroke_win_text))
+        DISPLAY.blit(font.render(win_text, True, RED if winner ==
+                     "red" else BLACK), (WIDTH/3.8, HEIGHT/2.3))
+
+        turn = False
 
     pygame.display.update()
     clock.tick(FPS)
